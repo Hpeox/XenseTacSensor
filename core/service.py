@@ -239,7 +239,7 @@ class AcquisitionService:
         if not self.local_store.has_data():
             return None
         demo_tag = self.current_demo_tag
-        filename = f"data_demo_{demo_tag}.npy"
+        filename = f"data_TAC_{demo_tag}.npy"
         self.local_store.flush(filename=filename)
         self.local_store.clear()
         self.current_demo_tag = None
