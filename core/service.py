@@ -161,7 +161,7 @@ class AcquisitionService:
             return
 
         if msg_type == MsgType.DEMO_DONE_REQ:
-            if self.state == ServiceState.COLLECTING:
+            if self.state in {ServiceState.COLLECTING, ServiceState.PAUSED}:
                 self.local_store.mark_event("demo_done_ns", time.time_ns())
                 try:
                     saved_file = self._flush_current_demo()
@@ -180,7 +180,7 @@ class AcquisitionService:
             return
 
         if msg_type == MsgType.DEMO_DISCARD_REQ:
-            if self.state == ServiceState.COLLECTING:
+            if self.state in {ServiceState.COLLECTING, ServiceState.PAUSED}:
                 self.local_store.mark_event("demo_discard_ns", time.time_ns())
                 self._discard_current_demo()
                 self._set_state(ServiceState.WAIT_START)
