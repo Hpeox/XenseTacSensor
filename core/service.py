@@ -197,12 +197,16 @@ class AcquisitionService:
 
         if msg_type == MsgType.STOP_REQ:
             self.local_store.mark_event("stop_ns", time.time_ns())
+            saved_file = None
             try:
-                self._flush_current_demo()
+                saved_file = self._flush_current_demo()
                 self._reset_shm_if_available()
             except Exception as exc:
                 self._send_error(ErrorCode.UNKNOWN, f"flush on stop failed: {exc}")
-            self.uds.send_message(MsgType.ACK, payload={"cmd": "STOP_REQ"})
+            payload = {"cmd": "STOP_REQ"}
+            if saved_file is not None:
+                payload["saved_file"] = saved_file
+            self.uds.send_message(MsgType.ACK, payload=payload)
             self._set_state(ServiceState.STOPPED)
             self._running = False
             
