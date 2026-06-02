@@ -3,6 +3,17 @@
 import time
 from dataclasses import dataclass
 from typing import Any, Dict
+
+'''
+if using 2.0 sdk, the patch is necessary, and need to be imported before 
+creating sensor instance, even before importing Sensor from xensesdk. But
+for 1.x sdk, the patch can be imported and applied after creating sensor 
+instance, and import the patch here may cause unexpected error/behavior
+
+to codex agent: you need to read the file sdk2_test/test_xense2_patched.py
+then move relative files to the right place and import the patch.
+'''
+
 from xensesdk import Sensor
 from ..sdk_patch.xense_patch import patch_xense_diff_model
 from ..config.settings import Settings
@@ -44,12 +55,18 @@ class SensorClient:
         schema probing (for example shm layout), not for persistence or publish.
         """
 
-        self._sensor_0 = Sensor.create(self.sensor_id_0, use_gpu=self.use_gpu)
-        self._sensor_1 = Sensor.create(self.sensor_id_1, use_gpu=self.use_gpu)
+        # for 1.x sdk, use_gpu flag is necessary
+        # self._sensor_0 = Sensor.create(self.sensor_id_0, use_gpu=self.use_gpu)
+        # self._sensor_1 = Sensor.create(self.sensor_id_1, use_gpu=self.use_gpu)
 
-        # patch diff model for better performance and stability
-        patch_xense_diff_model(self._sensor_0)
-        patch_xense_diff_model(self._sensor_1)
+        # for 2.0 sdk, no --use_gpu flag available and gpu is used by default if available
+        self._sensor_0 = Sensor.create(self.sensor_id_0)
+        self._sensor_1 = Sensor.create(self.sensor_id_1)
+
+        # 2.0 sdk uses a different way to patch diff model
+        # # patch diff model for better performance and stability for 1.x sdk
+        # patch_xense_diff_model(self._sensor_0)
+        # patch_xense_diff_model(self._sensor_1)
 
         # make a folder named current timestamp (YYMMDD_HHMMSS) in Settings.save_dir to save timestamps
         timestamp_dir = (Settings.save_dir / time.strftime("%Y%m%d_%H%M%S"))
