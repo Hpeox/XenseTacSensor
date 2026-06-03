@@ -34,6 +34,7 @@ class ErrorCode(IntEnum):
     SENSOR_READ_FAIL = 3
     SHM_WRITE_FAIL = 4
     SOCKET_FAIL = 5
+    SENSOR_INIT_FAIL = 6
 
 
 def pack_message(

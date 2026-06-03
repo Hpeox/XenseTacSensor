@@ -140,14 +140,21 @@ tensor_abs_offset(i, tensor) = slot_payload_base(i) + tensor.offset
 - `STOP_REQ`: 若内存仍有数据，执行一次兜底 flush
 
 ## SDK Patch
-项目包含一个针对 Xense SDK `_diff_model` 的小补丁，用于避免最后的 `Clip` 节点回退到 CPU，从而降低 CPU 占用并提升稳定性。
+项目支持 Xense SDK `1.x` 和 `2.0` 两条路径。服务端只通过当前
+`sys.executable` 中的 conda env 判断版本：`Xense310` 对应 SDK `1.x`，
+`xense2` 对应 SDK `2.0`。初始化时会打印当前 conda env 和 SDK version；如果
+env 无法识别或传感器初始化失败，服务端会通过 UDS 发送 `ERROR`，不会发送
+`INIT_READY`。
+
+两版 SDK 的 `_diff_model` patch 方式不同：SDK `1.x` 在 `Sensor.create()` 后替换
+SDK 内部 session，SDK `2.0` 必须在导入 `xensesdk.Sensor` 前导入 ORT patch。
 详细说明与使用方法见：[sdk_patch/README.md](sdk_patch/README.md)。
 
 ## 启动方式
 在项目根目录执行：
 
 ```
-python -m XenseTacSensor.app --uds-path /tmp/xense_sensor.sock --shm-name xense_sensor_frame --fps 30
+conda run -n xense2 python -m XenseTacSensor.app --uds-path /tmp/xense_sensor.sock --shm-name xense_sensor_frame --fps 30
 ```
 
 可选参数：

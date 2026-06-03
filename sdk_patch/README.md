@@ -4,20 +4,31 @@
 
 在 Xense SDK 的默认推理路径中，`_infer_engine._diff_model` 使用 ONNX Runtime 执行。profiling 发现原始 `_diff_model` 中最后的：`Clip(x, 0, 1)`会被 ONNX Runtime 分配到 `CPUExecutionProvider`，并插入若干 `Cast` 节点，导致 SDK 在 30 Hz 运行时产生较高 CPU 占用。该 patch 将 `_diff_model` 中的最后一层 `Clip(x, 0, 1)` 改写为数学等价的：`Min(Max(x, 0), 1)`从而避免该节点 fallback 到 CPU。
 
+当前仓库同时支持 Xense SDK `1.x` 和 `2.0`。两版 patch 的触发时机不同：
+
+- SDK `1.x`：创建 sensor 后替换 SDK 内部 `_infer_engine._diff_model` session。
+- SDK `2.0`：必须在导入 `xensesdk.Sensor` 前导入 ORT patch，让 `InferenceSession`
+  创建时自动拦截 diff model。
+
 ## 文件
 
 ```text
 sdk_patch/
 ├── xense_patch.py
-└── diff_model_minmax.onnx
+├── diff_model_minmax.onnx
+├── xense2_ort_patch.py
+└── xense2_diff_minmax.onnx
 ```
 
 其中：
 
-- `diff_model_minmax.onnx`：patched 后的 `_diff_model`
-- `xense_patch.py`：用于在 `Sensor.create()` 后替换 SDK 内部 `_diff_model`
+- `diff_model_minmax.onnx`：SDK `1.x` 使用的 patched `_diff_model`
+- `xense_patch.py`：SDK `1.x` 使用，用于在 `Sensor.create()` 后替换 SDK 内部 `_diff_model`
+- `xense2_diff_minmax.onnx`：SDK `2.0` 使用的 patched `_diff_model`，文件名刻意和
+  `1.x` 模型不同，避免混淆
+- `xense2_ort_patch.py`：SDK `2.0` 使用，导入即 patch ONNX Runtime session 创建逻辑
 
-## 使用方法
+## SDK 1.x 使用方法
 
 在创建传感器后、第一次调用 `selectSensorInfo()` 前执行 patch：
 
@@ -51,9 +62,23 @@ patch_xense_diff_model(...)
 
 不建议在正式循环运行过程中动态替换模型。
 
+## SDK 2.0 使用方法
+
+SDK `2.0` 必须在 `from xensesdk import Sensor` 之前导入 patch：
+
+```python
+from XenseTacSensor.sdk_patch import xense2_ort_patch  # import-time patch
+from xensesdk import Sensor
+
+sensor_0 = Sensor.create(sensor_id_0)
+sensor_1 = Sensor.create(sensor_id_1)
+```
+
+`xense2_ort_patch.py` 使用自身文件位置解析 `xense2_diff_minmax.onnx`，不依赖当前工作目录。
+
 ## 实现方式
 
-`patch_xense_diff_model()` 会：
+SDK `1.x` 的 `patch_xense_diff_model()` 会：
 
 1. 读取 SDK 原始 `_diff_model` 的 CUDA provider options；
 2. 使用 `diff_model_minmax.onnx` 创建新的 ONNX Runtime session；

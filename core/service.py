@@ -56,6 +56,8 @@ class AcquisitionService:
         """Run the service main loop until STOP is requested or a fatal error occurs."""
         try:
             self.initialize()
+            if self.state == ServiceState.STOPPED:
+                return
             self._set_state(ServiceState.WAIT_START)
             self.uds.send_message(MsgType.INIT_READY)
             self.local_store.mark_event("init_ready_ns", time.time_ns())
@@ -77,11 +79,14 @@ class AcquisitionService:
         self.uds.start_server()
         self.uds.wait_client()
 
-        # init sensors
-        seed_frame = self.sensor.initialize() 
-        
-        # init shm writer with schema from seed frame
-        self.shm_writer = ShmWriter.from_frame(self.settings.shm_name, seed_frame)
+        try:
+            seed_frame = self.sensor.initialize()
+            self.shm_writer = ShmWriter.from_frame(self.settings.shm_name, seed_frame)
+        except Exception as exc:
+            logging.exception("sensor initialization failed")
+            self._send_error(ErrorCode.SENSOR_INIT_FAIL, f"sensor init failed: {exc}")
+            self._set_state(ServiceState.STOPPED)
+            self._running = False
 
     def _collect_once(self) -> None:
         """Capture one frame and publish it through local store, shm, and UDS."""

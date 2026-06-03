@@ -1,22 +1,53 @@
 """Sensor SDK wrapper for two-device initialization and serial frame capture."""
 
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict
 
-'''
-if using 2.0 sdk, the patch is necessary, and need to be imported before 
-creating sensor instance, even before importing Sensor from xensesdk. But
-for 1.x sdk, the patch can be imported and applied after creating sensor 
-instance, and import the patch here may cause unexpected error/behavior
-
-to codex agent: you need to read the file sdk2_test/test_xense2_patched.py
-then move relative files to the right place and import the patch.
-'''
-
-from xensesdk import Sensor
-from ..sdk_patch.xense_patch import patch_xense_diff_model
 from ..config.settings import Settings
+
+
+XENSE_ENV_TO_SDK_VERSION = {
+    "Xense310": "1.x",
+    "xense2": "2.0",
+}
+
+
+def _xense_sdk_from_executable(executable: str | None = None) -> tuple[str, str]:
+    """Return the conda env and SDK version encoded in sys.executable."""
+    exe = Path(sys.executable if executable is None else executable).resolve()
+    parts = exe.parts
+    env_name = None
+    for index, part in enumerate(parts):
+        if part == "envs" and index + 1 < len(parts):
+            env_name = parts[index + 1]
+            break
+    if env_name is None:
+        raise RuntimeError(f"cannot determine Xense conda env from sys.executable={exe}")
+    try:
+        return env_name, XENSE_ENV_TO_SDK_VERSION[env_name]
+    except KeyError as exc:
+        allowed = ", ".join(sorted(XENSE_ENV_TO_SDK_VERSION))
+        raise RuntimeError(
+            f"unsupported Xense conda env {env_name!r}; expected one of: {allowed}"
+        ) from exc
+
+
+def load_sensor_api() -> tuple[str, Any]:
+    """Load the SDK with version-specific patch ordering."""
+    env_name, sdk_version = _xense_sdk_from_executable()
+    print(f"[xense_sensor] conda env={env_name} sdk_version={sdk_version}")
+    if sdk_version == "2.0":
+        from ..sdk_patch import xense2_ort_patch  # noqa: F401
+        from xensesdk import Sensor
+
+        return sdk_version, Sensor
+
+    from xensesdk import Sensor
+
+    return sdk_version, Sensor
 
 
 @dataclass
@@ -47,6 +78,7 @@ class SensorClient:
 
         self._sensor_0 = None
         self._sensor_1 = None
+        self._sensor_api = None
 
     def initialize(self) -> FrameData:
         """Create sensors and return one warmup frame.
@@ -55,18 +87,20 @@ class SensorClient:
         schema probing (for example shm layout), not for persistence or publish.
         """
 
-        # for 1.x sdk, use_gpu flag is necessary
-        # self._sensor_0 = Sensor.create(self.sensor_id_0, use_gpu=self.use_gpu)
-        # self._sensor_1 = Sensor.create(self.sensor_id_1, use_gpu=self.use_gpu)
+        sdk_version, Sensor = load_sensor_api()
+        self._sensor_api = Sensor
 
-        # for 2.0 sdk, no --use_gpu flag available and gpu is used by default if available
-        self._sensor_0 = Sensor.create(self.sensor_id_0)
-        self._sensor_1 = Sensor.create(self.sensor_id_1)
+        if sdk_version == "1.x":
+            self._sensor_0 = Sensor.create(self.sensor_id_0, use_gpu=self.use_gpu)
+            self._sensor_1 = Sensor.create(self.sensor_id_1, use_gpu=self.use_gpu)
 
-        # 2.0 sdk uses a different way to patch diff model
-        # # patch diff model for better performance and stability for 1.x sdk
-        # patch_xense_diff_model(self._sensor_0)
-        # patch_xense_diff_model(self._sensor_1)
+            from ..sdk_patch.xense_patch import patch_xense_diff_model
+
+            patch_xense_diff_model(self._sensor_0)
+            patch_xense_diff_model(self._sensor_1)
+        else:
+            self._sensor_0 = Sensor.create(self.sensor_id_0)
+            self._sensor_1 = Sensor.create(self.sensor_id_1)
 
         # make a folder named current timestamp (YYMMDD_HHMMSS) in Settings.save_dir to save timestamps
         timestamp_dir = (Settings.save_dir / time.strftime("%Y%m%d_%H%M%S"))
@@ -87,9 +121,10 @@ class SensorClient:
         Returns:
             FrameData containing per-sensor timestamps and all selected outputs.
         """
-        if self._sensor_0 is None or self._sensor_1 is None:
+        if self._sensor_0 is None or self._sensor_1 is None or self._sensor_api is None:
             raise RuntimeError("sensor client not initialized")
 
+        Sensor = self._sensor_api
         timestamp_ns_0 = time.time_ns()
         rec_0, force_0, force_norm_0, force_resultant_0 = self._sensor_0.selectSensorInfo(
             Sensor.OutputType.Rectify,
@@ -127,6 +162,7 @@ class SensorClient:
         if self._sensor_1 is not None:
             self._sensor_1.release()
             self._sensor_1 = None
+        self._sensor_api = None
 
     @staticmethod
     def frame_to_dict(frame: FrameData) -> Dict[str, Any]:
