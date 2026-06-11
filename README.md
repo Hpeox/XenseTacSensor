@@ -254,9 +254,6 @@ python -m XenseTacSensor.shm_read_test_client --shm-name xense_sensor_frame --du
 - `wait_client` 为阻塞 accept，需确保控制端按预期连接。
 - `demo_tag` 当前按秒生成，若同秒触发多个 demo，文件名可能冲突。
 
-## TODO
-- 将 `core/service.py` 中的 `service.collectonce` 改成并行实现以降低时序误差
-
 ## 后续建议
 - 增加 UDS 断连重连逻辑
 - 增加分段落盘策略（长 demo 防止内存过高）
