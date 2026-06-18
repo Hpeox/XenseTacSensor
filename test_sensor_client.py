@@ -20,9 +20,10 @@ class FakeSensorInstance:
     def __init__(self, sensor_id: str):
         self.sensor_id = sensor_id
         self.released = False
+        self.exported_paths: list[Path] = []
 
-    def exportRuntimeConfig(self, _path) -> None:
-        pass
+    def exportRuntimeConfig(self, path) -> None:
+        self.exported_paths.append(Path(path))
 
     def selectSensorInfo(self, *_outputs):
         return "rec", "force", "force_norm", "force_resultant"
@@ -175,6 +176,55 @@ def test_worker_sensor_uses_sdk_20_import_patch_before_create(monkeypatch):
     )
 
     assert create_calls == [("sensor-0", {})]
+
+
+def test_runtime_config_dir_uses_instance_save_dir(monkeypatch, tmp_path):
+    sensor_client = import_sensor_client()
+    monkeypatch.setattr(sensor_client.time, "strftime", lambda _format: "20260618_120000")
+
+    runtime_config_dir = sensor_client._runtime_config_dir(tmp_path)
+
+    assert runtime_config_dir == tmp_path / "20260618_120000"
+    assert runtime_config_dir.is_dir()
+
+
+def test_sensor_worker_exports_runtime_config_to_supplied_dir(monkeypatch, tmp_path):
+    sensor_client = import_sensor_client()
+    sensor_instances: list[FakeSensorInstance] = []
+
+    class FakeOutputType:
+        Rectify = object()
+        Force = object()
+        ForceNorm = object()
+        ForceResultant = object()
+
+    class FakeSensor:
+        OutputType = FakeOutputType
+
+        @staticmethod
+        def create(sensor_id: str, **_kwargs):
+            sensor = FakeSensorInstance(sensor_id)
+            sensor_instances.append(sensor)
+            return sensor
+
+    monkeypatch.setattr(sensor_client, "load_sensor_api", lambda: ("2.0", FakeSensor))
+    runtime_config_dir = tmp_path / "runtime_config"
+    runtime_config_dir.mkdir()
+    command_queue = FakeQueue([("stop", None)])
+    result_queue = FakeQueue()
+
+    sensor_client._sensor_worker_main(
+        sensor_index=0,
+        sensor_id="sensor-0",
+        use_gpu=False,
+        runtime_config_dir=runtime_config_dir,
+        command_queue=command_queue,
+        result_queue=result_queue,
+    )
+
+    assert sensor_instances[0].exported_paths == [runtime_config_dir]
+    assert sensor_instances[0].released is True
+    assert result_queue.puts[0]["type"] == "ready"
 
 
 def test_read_frame_combines_two_worker_results():

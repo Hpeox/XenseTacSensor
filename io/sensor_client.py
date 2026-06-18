@@ -94,9 +94,9 @@ def _create_worker_sensor(sensor_id: str, use_gpu: bool, sdk_version: str, Senso
     return Sensor.create(sensor_id)
 
 
-def _runtime_config_dir() -> Path:
+def _runtime_config_dir(save_dir: Path) -> Path:
     """Return the timestamped directory used for SDK runtime config exports."""
-    timestamp_dir = Settings.save_dir / time.strftime("%Y%m%d_%H%M%S")
+    timestamp_dir = save_dir / time.strftime("%Y%m%d_%H%M%S")
     timestamp_dir.mkdir(parents=True, exist_ok=True)
     return timestamp_dir
 
@@ -105,6 +105,7 @@ def _sensor_worker_main(
     sensor_index: int,
     sensor_id: str,
     use_gpu: bool,
+    runtime_config_dir: Path,
     command_queue: Any,
     result_queue: Any,
 ) -> None:
@@ -114,7 +115,7 @@ def _sensor_worker_main(
     try:
         sdk_version, Sensor = load_sensor_api()
         sensor = _create_worker_sensor(sensor_id, use_gpu, sdk_version, Sensor)
-        sensor.exportRuntimeConfig(_runtime_config_dir())
+        sensor.exportRuntimeConfig(runtime_config_dir)
         timestamp_ns, payload = _select_sensor_payload(sensor, Sensor)
         result_queue.put(
             {
@@ -188,6 +189,7 @@ class SensorClient:
         worker_start_timeout_s: float = 60.0,
         read_timeout_s: float = 5.0,
         worker_stop_timeout_s: float = 5.0,
+        save_dir: Path | None = None,
     ):
         """Store sensor identifiers and runtime flags without touching hardware."""
         self.sensor_id_0 = sensor_id_0
@@ -196,6 +198,7 @@ class SensorClient:
         self.worker_start_timeout_s = worker_start_timeout_s
         self.read_timeout_s = read_timeout_s
         self.worker_stop_timeout_s = worker_stop_timeout_s
+        self.save_dir = Path(Settings.save_dir if save_dir is None else save_dir)
 
         self._sensor_0 = None
         self._sensor_1 = None
@@ -217,6 +220,7 @@ class SensorClient:
         self._result_queue = self._ctx.Queue()
         self._command_queues = []
         self._worker_processes = []
+        runtime_config_dir = _runtime_config_dir(self.save_dir)
 
         try:
             for sensor_index, sensor_id in enumerate((self.sensor_id_0, self.sensor_id_1)):
@@ -227,6 +231,7 @@ class SensorClient:
                         sensor_index,
                         sensor_id,
                         self.use_gpu,
+                        runtime_config_dir,
                         command_queue,
                         self._result_queue,
                     ),

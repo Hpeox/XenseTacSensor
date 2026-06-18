@@ -34,6 +34,7 @@ class AcquisitionService:
             sensor_id_0=settings.sensor_id_0,
             sensor_id_1=settings.sensor_id_1,
             use_gpu=settings.use_gpu,
+            save_dir=settings.save_dir,
         )
         self.uds = UdsChannel(
             socket_path=settings.uds_path,
