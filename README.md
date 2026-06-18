@@ -161,6 +161,7 @@ conda run -n xense2 python -m XenseTacSensor.app --uds-path /tmp/xense_sensor.so
 - `--uds-path`: UDS socket 路径
 - `--shm-name`: 共享内存名称
 - `--fps`: 目标采样频率，必须大于 0
+- `--save-dir`: `.npy` 与 SDK runtime config 的保存目录，默认使用仓库根目录下的 `runtime_frames`
 
 ## 最小 UDS 测试客户端
 新增了一个最小联调客户端：

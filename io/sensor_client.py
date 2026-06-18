@@ -70,11 +70,18 @@ class FrameData:
 class SensorClient:
     """Encapsulate dual-sensor lifecycle and per-frame read operations."""
 
-    def __init__(self, sensor_id_0: str, sensor_id_1: str, use_gpu: bool = True):
+    def __init__(
+        self,
+        sensor_id_0: str,
+        sensor_id_1: str,
+        use_gpu: bool = True,
+        save_dir: Path | None = None,
+    ):
         """Store sensor identifiers and runtime flags without touching hardware."""
         self.sensor_id_0 = sensor_id_0
         self.sensor_id_1 = sensor_id_1
         self.use_gpu = use_gpu
+        self.save_dir = Path(Settings.save_dir if save_dir is None else save_dir)
 
         self._sensor_0 = None
         self._sensor_1 = None
@@ -102,8 +109,8 @@ class SensorClient:
             self._sensor_0 = Sensor.create(self.sensor_id_0)
             self._sensor_1 = Sensor.create(self.sensor_id_1)
 
-        # make a folder named current timestamp (YYMMDD_HHMMSS) in Settings.save_dir to save timestamps
-        timestamp_dir = (Settings.save_dir / time.strftime("%Y%m%d_%H%M%S"))
+        # Make a timestamped directory under the configured runtime frame root.
+        timestamp_dir = self.save_dir / time.strftime("%Y%m%d_%H%M%S")
         timestamp_dir.mkdir(parents=True, exist_ok=True)
 
         self._sensor_0.exportRuntimeConfig(timestamp_dir)

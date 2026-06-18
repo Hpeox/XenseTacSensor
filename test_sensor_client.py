@@ -19,9 +19,10 @@ class FakeSensorInstance:
     def __init__(self, sensor_id: str):
         self.sensor_id = sensor_id
         self.released = False
+        self.exported_paths: list[Path] = []
 
-    def exportRuntimeConfig(self, _path) -> None:
-        pass
+    def exportRuntimeConfig(self, path) -> None:
+        self.exported_paths.append(Path(path))
 
     def selectSensorInfo(self, *_outputs):
         return "rec", "force", "force_norm", "force_resultant"
@@ -87,11 +88,15 @@ def test_initialize_uses_sdk_1x_create_signature_and_patch(monkeypatch, tmp_path
     patch_module.patch_xense_diff_model = lambda sensor: patch_calls.append(sensor)
 
     monkeypatch.setattr(sys, "executable", "/home/robot/miniconda3/envs/Xense310/bin/python")
-    monkeypatch.setattr(sensor_client.Settings, "save_dir", tmp_path)
     monkeypatch.setitem(sys.modules, "xensesdk", make_xensesdk_module(create_calls))
     monkeypatch.setitem(sys.modules, "XenseTacSensor.sdk_patch.xense_patch", patch_module)
 
-    client = sensor_client.SensorClient("sensor-0", "sensor-1", use_gpu=False)
+    client = sensor_client.SensorClient(
+        "sensor-0",
+        "sensor-1",
+        use_gpu=False,
+        save_dir=tmp_path,
+    )
     client.initialize()
 
     assert create_calls == [
@@ -99,6 +104,7 @@ def test_initialize_uses_sdk_1x_create_signature_and_patch(monkeypatch, tmp_path
         ("sensor-1", {"use_gpu": False}),
     ]
     assert [sensor.sensor_id for sensor in patch_calls] == ["sensor-0", "sensor-1"]
+    assert all(sensor.exported_paths[0].parent == tmp_path for sensor in patch_calls)
 
 
 def test_initialize_uses_sdk_20_import_patch_before_create(monkeypatch, tmp_path):
@@ -119,7 +125,6 @@ def test_initialize_uses_sdk_20_import_patch_before_create(monkeypatch, tmp_path
     onnxruntime.GraphOptimizationLevel = types.SimpleNamespace(ORT_ENABLE_ALL=1)
 
     monkeypatch.setattr(sys, "executable", "/home/robot/miniconda3/envs/xense2/bin/python")
-    monkeypatch.setattr(sensor_client.Settings, "save_dir", tmp_path)
     monkeypatch.setitem(sys.modules, "onnxruntime", onnxruntime)
     monkeypatch.setitem(
         sys.modules,
@@ -127,13 +132,20 @@ def test_initialize_uses_sdk_20_import_patch_before_create(monkeypatch, tmp_path
         make_xensesdk_module(create_calls, create_observer=observe_create),
     )
 
-    client = sensor_client.SensorClient("sensor-0", "sensor-1", use_gpu=False)
+    client = sensor_client.SensorClient(
+        "sensor-0",
+        "sensor-1",
+        use_gpu=False,
+        save_dir=tmp_path,
+    )
     client.initialize()
 
     assert create_calls == [
         ("sensor-0", {}),
         ("sensor-1", {}),
     ]
+    assert client._sensor_0.exported_paths[0].parent == tmp_path
+    assert client._sensor_1.exported_paths[0].parent == tmp_path
 
 
 def test_acquisition_initialize_sends_error_on_sensor_init_failure(monkeypatch):
