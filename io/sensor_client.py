@@ -13,7 +13,8 @@ from ..config.settings import Settings
 
 XENSE_ENV_TO_SDK_VERSION = {
     "Xense310": "1.x",
-    "xense2": "2.0",
+    "xense2_bak": "2.0",
+    "xense2": "2.0.1",
 }
 
 
@@ -41,7 +42,7 @@ def load_sensor_api() -> tuple[str, Any]:
     """Load the SDK with version-specific patch ordering."""
     env_name, sdk_version = _xense_sdk_from_executable()
     print(f"[xense_sensor] conda env={env_name} sdk_version={sdk_version}")
-    if sdk_version == "2.0":
+    if sdk_version in {"2.0", "2.0.1"}:
         from ..sdk_patch import xense2_ort_patch  # noqa: F401
         from xensesdk import Sensor
 
@@ -90,6 +91,9 @@ def _create_worker_sensor(sensor_id: str, use_gpu: bool, sdk_version: str, Senso
 
         patch_xense_diff_model(sensor)
         return sensor
+
+    if sdk_version not in {"2.0", "2.0.1"}:
+        raise RuntimeError(f"unsupported Xense SDK version: {sdk_version}")
 
     return Sensor.create(sensor_id)
 

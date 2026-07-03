@@ -102,7 +102,13 @@ def test_xense_sdk_from_executable_parses_supported_envs():
         sensor_client._xense_sdk_from_executable(
             "/home/robot/miniconda3/envs/xense2/bin/python"
         )
-        == ("xense2", "2.0")
+        == ("xense2", "2.0.1")
+    )
+    assert (
+        sensor_client._xense_sdk_from_executable(
+            "/home/robot/miniconda3/envs/xense2_bak/bin/python"
+        )
+        == ("xense2_bak", "2.0")
     )
     assert (
         sensor_client._xense_sdk_from_executable(
@@ -142,7 +148,7 @@ def test_worker_sensor_uses_sdk_1x_create_signature_and_patch(monkeypatch):
     assert [sensor.sensor_id for sensor in patch_calls] == ["sensor-0"]
 
 
-def test_worker_sensor_uses_sdk_20_import_patch_before_create(monkeypatch):
+def test_worker_sensor_uses_sdk_201_import_patch_before_create(monkeypatch):
     sensor_client = import_sensor_client()
     create_calls: list[tuple[str, dict]] = []
     patch_module_name = "XenseTacSensor.sdk_patch.xense2_ort_patch"
@@ -168,6 +174,7 @@ def test_worker_sensor_uses_sdk_20_import_patch_before_create(monkeypatch):
     )
 
     sdk_version, Sensor = sensor_client.load_sensor_api()
+    assert sdk_version == "2.0.1"
     sensor_client._create_worker_sensor(
         "sensor-0",
         use_gpu=False,
