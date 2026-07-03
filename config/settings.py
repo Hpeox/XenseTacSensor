@@ -17,6 +17,11 @@ class Settings:
 
     shm_name: str = "xense_sensor_frame"
     save_dir: Path = Path(__file__).resolve().parent.parent.parent / "runtime_frames"
+    tactile_preview_dir: Path = Path("/tmp/main_controller/xense_tactile_preview")
+
+    xense_tactile_zero_force_mean_tolerance: float = 0.1
+    xense_tactile_edge_warning_threshold: float = 0.5
+    xense_tactile_edge_window_samples: int = 15
 
     # 连续采集节奏控制；若采集耗时超过该间隔则不会额外 sleep
     target_fps: float = 30.0

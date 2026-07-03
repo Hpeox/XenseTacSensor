@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 from queue import Empty
 
+import numpy as np
 import pytest
 
 
@@ -71,6 +72,84 @@ class FakeProcess:
         self.terminated = True
         self._alive = False
         self.exitcode = -15
+
+
+def _tactile_data_dict(sensor0: np.ndarray, sensor1: np.ndarray) -> dict:
+    frames = {}
+    for index, (force0, force1) in enumerate(zip(sensor0, sensor1)):
+        frames[f"{index:05d}"] = {
+            "OG000544_force_resultant": np.asarray(force0, dtype=np.float64),
+            "OG001009_force_resultant": np.asarray(force1, dtype=np.float64),
+        }
+    return {"events": {}, "frames_data": frames}
+
+
+def test_tactile_qc_allows_both_zero_force():
+    from XenseTacSensor.core.tactile_qc import compute_tactile_qc
+
+    zeros = np.zeros((4, 6), dtype=np.float64)
+
+    result = compute_tactile_qc(
+        _tactile_data_dict(zeros, zeros),
+        sensor_ids=("OG000544", "OG001009"),
+        zero_force_mean_tolerance=0.1,
+        edge_warning_threshold=0.5,
+        edge_window_samples=15,
+    )
+
+    assert result.manifest["ok"] is True
+    assert [sensor["zero_force"] for sensor in result.manifest["sensors"]] == [True, True]
+    assert result.preview is not None
+    assert result.preview.force_resultant.shape == (2, 4, 6)
+
+
+def test_tactile_qc_fails_exactly_one_zero_force():
+    from XenseTacSensor.core.tactile_qc import compute_tactile_qc
+
+    zeros = np.zeros((4, 6), dtype=np.float64)
+    nonzero = np.ones((4, 6), dtype=np.float64)
+
+    result = compute_tactile_qc(
+        _tactile_data_dict(zeros, nonzero),
+        sensor_ids=("OG000544", "OG001009"),
+        zero_force_mean_tolerance=0.1,
+        edge_warning_threshold=0.5,
+        edge_window_samples=15,
+    )
+
+    assert result.manifest["ok"] is False
+    assert [sensor["zero_force"] for sensor in result.manifest["sensors"]] == [True, False]
+
+
+def test_tactile_qc_edge_warning_and_preview_write(tmp_path):
+    from XenseTacSensor.core.tactile_qc import compute_tactile_qc, write_tactile_preview_npz
+
+    normal = np.full((20, 6), 0.05, dtype=np.float64)
+    edge = np.full((20, 6), 0.05, dtype=np.float64)
+    edge[:15, 2] = 0.6
+
+    result = compute_tactile_qc(
+        _tactile_data_dict(normal, edge),
+        sensor_ids=("OG000544", "OG001009"),
+        zero_force_mean_tolerance=0.1,
+        edge_warning_threshold=0.5,
+        edge_window_samples=15,
+    )
+
+    assert result.manifest["ok"] is True
+    assert result.manifest["has_warning"] is True
+    assert [sensor["edge_warning"] for sensor in result.manifest["sensors"]] == [False, True]
+    assert result.preview is not None
+    output_path = write_tactile_preview_npz(result.preview, tmp_path / "preview.npz")
+    with np.load(output_path, allow_pickle=False) as data:
+        assert set(data.files) == {
+            "sensor_ids",
+            "frame_index",
+            "force_resultant",
+            "edge_warning",
+            "edge_max",
+        }
+        np.testing.assert_array_equal(data["edge_warning"], [False, True])
 
 
 def make_xensesdk_module(create_calls: list[tuple[str, dict]], create_observer=None):
