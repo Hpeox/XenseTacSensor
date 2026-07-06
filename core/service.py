@@ -11,6 +11,7 @@ from ..io.sensor_client import SensorClient
 from ..io.shm_writer import ShmWriter
 from ..io.uds_channel import UdsChannel
 from ..protocol.messages import ErrorCode, MsgType
+from .tactile_qc import compute_tactile_qc, write_tactile_preview_npz
 from .state import ServiceState, can_transition
 
 
@@ -170,12 +171,21 @@ class AcquisitionService:
             if self.state in {ServiceState.COLLECTING, ServiceState.PAUSED}:
                 self.local_store.mark_event("demo_done_ns", time.time_ns())
                 try:
-                    saved_file = self._flush_current_demo()
+                    (
+                        saved_file,
+                        tactile_postcheck,
+                        tactile_preview,
+                    ) = self._flush_current_demo_with_tactile_metadata()
                     self._set_state(ServiceState.WAIT_START)
                     self._reset_shm_if_available()
                     self.uds.send_message(
                         MsgType.ACK,
-                        payload={"cmd": "DEMO_DONE_REQ", "saved_file": saved_file},
+                        payload={
+                            "cmd": "DEMO_DONE_REQ",
+                            "saved_file": saved_file,
+                            "xense_tactile_postcheck": tactile_postcheck,
+                            "xense_tactile_preview": tactile_preview,
+                        },
                     )
                 except Exception as exc:
                     self._set_state(ServiceState.PAUSED)
@@ -246,14 +256,41 @@ class AcquisitionService:
         Returns:
             Saved file name when data exists; otherwise None.
         """
+        saved_file, _postcheck, _preview = self._flush_current_demo_with_tactile_metadata()
+        return saved_file
+
+    def _flush_current_demo_with_tactile_metadata(
+        self,
+    ) -> tuple[str | None, dict | None, dict]:
+        """Persist buffered demo data and return tactile post-check metadata."""
         if not self.local_store.has_data():
-            return None
+            return None, None, {"ok": False, "path": None, "error": "no tactile data"}
         demo_tag = self.current_demo_tag
         filename = f"data_TAC_{demo_tag}.npy"
+        qc_result = compute_tactile_qc(
+            self.local_store.data_dict,
+            sensor_ids=(self.settings.sensor_id_0, self.settings.sensor_id_1),
+            zero_force_mean_tolerance=self.settings.xense_tactile_zero_force_mean_tolerance,
+            edge_warning_threshold=self.settings.xense_tactile_edge_warning_threshold,
+            edge_window_samples=self.settings.xense_tactile_edge_window_samples,
+        )
         self.local_store.flush(filename=filename)
+        preview_path = (
+            self.settings.tactile_preview_dir
+            / f"{Path(filename).stem}_{time.time_ns()}_force_resultant.npz"
+        )
+        preview_manifest = {"ok": False, "path": str(preview_path), "error": None}
+        if qc_result.preview is None:
+            preview_manifest["error"] = qc_result.manifest.get("error") or "tactile preview unavailable"
+        else:
+            try:
+                write_tactile_preview_npz(qc_result.preview, preview_path)
+                preview_manifest["ok"] = True
+            except Exception as exc:
+                preview_manifest["error"] = str(exc)
         self.local_store.clear()
         self.current_demo_tag = None
-        return filename
+        return filename, qc_result.manifest, preview_manifest
 
     def _discard_current_demo(self) -> None:
         """Discard current buffered demo data without persisting to disk."""

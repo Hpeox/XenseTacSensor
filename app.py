@@ -15,6 +15,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shm-name", default=None, help="Shared memory name")
     parser.add_argument("--fps", type=float, default=None, help="Target FPS")
     parser.add_argument("--save-dir", type=Path, default=None, help="Directory for saved runtime frames")
+    parser.add_argument("--tactile-preview-dir", type=Path, default=None, help="Directory for lightweight tactile preview files")
+    parser.add_argument("--xense-tactile-zero-force-mean-tolerance", type=float, default=None)
+    parser.add_argument("--xense-tactile-edge-warning-threshold", type=float, default=None)
+    parser.add_argument("--xense-tactile-edge-window-samples", type=int, default=None)
     return parser.parse_args()
 
 
@@ -32,6 +36,14 @@ def main() -> None:
         settings.target_fps = args.fps
     if args.save_dir is not None:
         settings.save_dir = args.save_dir.expanduser().resolve()
+    if args.tactile_preview_dir is not None:
+        settings.tactile_preview_dir = args.tactile_preview_dir.expanduser().resolve()
+    if args.xense_tactile_zero_force_mean_tolerance is not None:
+        settings.xense_tactile_zero_force_mean_tolerance = args.xense_tactile_zero_force_mean_tolerance
+    if args.xense_tactile_edge_warning_threshold is not None:
+        settings.xense_tactile_edge_warning_threshold = args.xense_tactile_edge_warning_threshold
+    if args.xense_tactile_edge_window_samples is not None:
+        settings.xense_tactile_edge_window_samples = args.xense_tactile_edge_window_samples
 
     service = AcquisitionService(settings)
     service.run_forever()
