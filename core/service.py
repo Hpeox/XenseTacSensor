@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..config.settings import Settings
 from ..io.local_store import LocalStore
-from ..io.sensor_client import SensorClient
+from ..io.sensor_client import MockSensorClient, SensorClient
 from ..io.shm_writer import ShmWriter
 from ..io.uds_channel import UdsChannel
 from ..protocol.messages import ErrorCode, MsgType
@@ -18,7 +18,11 @@ from .state import ServiceState, can_transition
 class AcquisitionService:
     """Coordinate sensor IO, state transitions, local storage, shm, and UDS messaging."""
 
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        sensor_client: SensorClient | MockSensorClient | None = None,
+    ):
         """Create service dependencies and initialize runtime counters.
 
         Args:
@@ -31,7 +35,7 @@ class AcquisitionService:
         self.frame_interval = 1.0 / self.settings.target_fps
         self.state = ServiceState.BOOT
 
-        self.sensor = SensorClient(
+        self.sensor = sensor_client or SensorClient(
             sensor_id_0=settings.sensor_id_0,
             sensor_id_1=settings.sensor_id_1,
             use_gpu=settings.use_gpu,

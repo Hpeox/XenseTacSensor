@@ -152,6 +152,63 @@ def test_tactile_qc_edge_warning_and_preview_write(tmp_path):
         np.testing.assert_array_equal(data["edge_warning"], [False, True])
 
 
+def test_mock_sensor_client_uses_production_tensor_schema_without_sdk():
+    from XenseTacSensor.io.sensor_client import MockSensorClient
+
+    client = MockSensorClient()
+    warmup = client.initialize()
+    frame = client.read_frame(7)
+
+    assert warmup.frame_id == -1
+    assert frame.frame_id == 7
+    assert frame.timestamp_ns_0 > 0
+    assert frame.timestamp_ns_1 > 0
+    for value in (frame.rec_0, frame.rec_1):
+        assert value.shape == (700, 400, 3)
+        assert value.dtype == np.dtype(np.uint8)
+        assert not value.any()
+    for value in (
+        frame.force_0,
+        frame.force_norm_0,
+        frame.force_1,
+        frame.force_norm_1,
+    ):
+        assert value.shape == (35, 20, 3)
+        assert value.dtype == np.dtype(np.float64)
+        assert not value.any()
+    for value in (frame.force_resultant_0, frame.force_resultant_1):
+        assert value.shape == (6,)
+        assert value.dtype == np.dtype(np.float64)
+        assert not value.any()
+
+    client.release()
+    with pytest.raises(RuntimeError, match="released"):
+        client.read_frame(8)
+
+
+def test_xense_app_injects_mock_sensor_client(monkeypatch):
+    from XenseTacSensor import app
+    from XenseTacSensor.io.sensor_client import MockSensorClient
+
+    captured = {}
+
+    class FakeService:
+        def __init__(self, settings, sensor_client=None):
+            captured["settings"] = settings
+            captured["sensor_client"] = sensor_client
+
+        def run_forever(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setattr(app, "AcquisitionService", FakeService)
+    monkeypatch.setattr(sys, "argv", ["xense", "--mock"])
+
+    app.main()
+
+    assert isinstance(captured["sensor_client"], MockSensorClient)
+    assert captured["ran"] is True
+
+
 def make_xensesdk_module(create_calls: list[tuple[str, dict]], create_observer=None):
     class FakeOutputType:
         Rectify = object()
@@ -480,3 +537,127 @@ def test_collect_once_sends_error_and_pauses_on_sensor_read_failure(tmp_path):
             {"code": int(ErrorCode.SENSOR_READ_FAIL), "reason": "read failed"},
         )
     ]
+
+
+def test_mock_client_runs_existing_acquisition_lifecycle_and_persists_tactile_data(tmp_path):
+    from XenseTacSensor.config.settings import Settings
+    from XenseTacSensor.core.service import AcquisitionService
+    from XenseTacSensor.core.state import ServiceState
+    from XenseTacSensor.io.sensor_client import MockSensorClient
+    from XenseTacSensor.protocol.messages import MsgType
+
+    class FakeUds:
+        def __init__(self):
+            self.inbound = []
+            self.sent = []
+            self.started = False
+            self.waited = False
+            self.closed = False
+
+        def start_server(self) -> None:
+            self.started = True
+
+        def wait_client(self) -> None:
+            self.waited = True
+
+        def try_recv_message(self, max_wait_s=0.0):
+            del max_wait_s
+            return self.inbound.pop(0) if self.inbound else None
+
+        def send_message(self, msg_type, frame_id=-1, payload=None) -> None:
+            self.sent.append((msg_type, frame_id, payload))
+
+        def close(self) -> None:
+            self.closed = True
+
+    settings = Settings(
+        uds_path=str(tmp_path / "xense.sock"),
+        shm_name=f"xense_mock_{tmp_path.name}",
+        save_dir=tmp_path / "runtime_frames",
+        tactile_preview_dir=tmp_path / "preview",
+        target_fps=1000.0,
+    )
+    uds = FakeUds()
+    service = AcquisitionService(settings, sensor_client=MockSensorClient())
+    service.uds = uds
+    try:
+        service.initialize()
+        assert uds.started is True
+        assert uds.waited is True
+        assert service.shm_writer is not None
+        schema = service.shm_writer.schema()
+        assert [(tensor["shape"], tensor["dtype"]) for tensor in schema["tensors"]] == [
+            ((700, 400, 3), "uint8"),
+            ((35, 20, 3), "float64"),
+            ((35, 20, 3), "float64"),
+            ((6,), "float64"),
+            ((700, 400, 3), "uint8"),
+            ((35, 20, 3), "float64"),
+            ((35, 20, 3), "float64"),
+            ((6,), "float64"),
+        ]
+
+        service._set_state(ServiceState.WAIT_START)
+        uds.inbound.append((MsgType.START_REQ, -1, {}))
+        service._process_control_messages()
+        assert service.state == ServiceState.COLLECTING
+        uds.inbound.append((MsgType.PAUSE_REQ, -1, {}))
+        service._process_control_messages()
+        assert service.state == ServiceState.PAUSED
+        uds.inbound.append((MsgType.START_REQ, -1, {}))
+        service._process_control_messages()
+        service._collect_once()
+        frame_payload = next(
+            payload
+            for msg_type, _frame_id, payload in uds.sent
+            if msg_type == MsgType.FRAME_READY
+        )
+        assert frame_payload["timestamp_ns_0"] > 0
+        assert frame_payload["timestamp_ns_1"] > 0
+        uds.inbound.append((MsgType.DEMO_DONE_REQ, -1, {}))
+        service._process_control_messages()
+
+        done_payload = next(
+            payload
+            for msg_type, _frame_id, payload in reversed(uds.sent)
+            if msg_type == MsgType.ACK and payload and payload.get("cmd") == "DEMO_DONE_REQ"
+        )
+        assert service.state == ServiceState.WAIT_START
+        assert done_payload["saved_file"].startswith("data_TAC_")
+        assert done_payload["xense_tactile_postcheck"]["ok"] is True
+        assert done_payload["xense_tactile_postcheck"]["has_warning"] is False
+        assert done_payload["xense_tactile_preview"]["ok"] is True
+
+        saved_path = settings.save_dir / done_payload["saved_file"]
+        saved = np.load(saved_path, allow_pickle=True).item()
+        frame = saved["frames_data"]["00000"]
+        assert frame[f"{settings.sensor_id_0}_rec"].shape == (700, 400, 3)
+        assert frame[f"{settings.sensor_id_1}_force"].shape == (35, 20, 3)
+        assert frame[f"{settings.sensor_id_0}_force_resultant"].shape == (6,)
+        assert not frame[f"{settings.sensor_id_0}_force_resultant"].any()
+        assert not frame[f"{settings.sensor_id_1}_force_resultant"].any()
+        assert Path(done_payload["xense_tactile_preview"]["path"]).exists()
+
+        uds.inbound.extend(
+            [
+                (MsgType.START_REQ, -1, {}),
+                (MsgType.DEMO_DISCARD_REQ, -1, {}),
+                (MsgType.STOP_REQ, -1, {}),
+            ]
+        )
+        service._process_control_messages()
+        service._collect_once()
+        service._process_control_messages()
+        service._process_control_messages()
+        assert service.state == ServiceState.STOPPED
+        assert any(
+            msg_type == MsgType.ACK and payload and payload.get("cmd") == "DEMO_DISCARD_REQ"
+            for msg_type, _frame_id, payload in uds.sent
+        )
+        assert any(
+            msg_type == MsgType.ACK and payload and payload.get("cmd") == "STOP_REQ"
+            for msg_type, _frame_id, payload in uds.sent
+        )
+    finally:
+        service.shutdown()
+    assert uds.closed is True
