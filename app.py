@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config.settings import Settings
 from .core.service import AcquisitionService
+from .io.sensor_client import MockSensorClient
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--xense-tactile-zero-force-mean-tolerance", type=float, default=None)
     parser.add_argument("--xense-tactile-edge-warning-threshold", type=float, default=None)
     parser.add_argument("--xense-tactile-edge-window-samples", type=int, default=None)
+    parser.add_argument("--mock", action="store_true", help="Use deterministic mock tactile frames without SDK or hardware")
     return parser.parse_args()
 
 
@@ -45,7 +47,8 @@ def main() -> None:
     if args.xense_tactile_edge_window_samples is not None:
         settings.xense_tactile_edge_window_samples = args.xense_tactile_edge_window_samples
 
-    service = AcquisitionService(settings)
+    sensor_client = MockSensorClient() if args.mock else None
+    service = AcquisitionService(settings, sensor_client=sensor_client)
     service.run_forever()
 
 

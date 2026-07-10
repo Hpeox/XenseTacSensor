@@ -163,6 +163,14 @@ conda run -n xense2 python -m XenseTacSensor.app --uds-path /tmp/xense_sensor.so
 - `--shm-name`: 共享内存名称
 - `--fps`: 目标采样频率，必须大于 0
 - `--save-dir`: `.npy` 与 SDK runtime config 的保存目录，默认使用仓库根目录下的 `runtime_frames`
+- `--mock`: 使用确定性的双路 mock tensor，不初始化 Xense SDK、worker 或物理 sensor；仍
+  通过完整 `AcquisitionService` 写入 SHM、`data_TAC_*.npy`、tactile QC 和 preview sidecar。
+
+Mock 启动示例：
+
+```
+python -m XenseTacSensor.app --mock --uds-path /tmp/xense_sensor.sock --shm-name xense_sensor_frame --fps 30
+```
 
 ## 最小 UDS 测试客户端
 新增了一个最小联调客户端：

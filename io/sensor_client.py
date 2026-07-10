@@ -8,6 +8,8 @@ from pathlib import Path
 from queue import Empty
 from typing import Any, Dict
 
+import numpy as np
+
 from ..config.settings import Settings
 
 
@@ -68,6 +70,53 @@ class FrameData:
     force_1: Any
     force_norm_1: Any
     force_resultant_1: Any
+
+
+class MockSensorClient:
+    """Deterministic dual-sensor substitute with production tensor schemas."""
+
+    def __init__(self):
+        """Allocate immutable-in-practice zero tensors without loading the SDK."""
+        self._rec_0 = np.zeros((700, 400, 3), dtype=np.uint8)
+        self._force_0 = np.zeros((35, 20, 3), dtype=np.float64)
+        self._force_norm_0 = np.zeros((35, 20, 3), dtype=np.float64)
+        self._force_resultant_0 = np.zeros((6,), dtype=np.float64)
+        self._rec_1 = np.zeros((700, 400, 3), dtype=np.uint8)
+        self._force_1 = np.zeros((35, 20, 3), dtype=np.float64)
+        self._force_norm_1 = np.zeros((35, 20, 3), dtype=np.float64)
+        self._force_resultant_1 = np.zeros((6,), dtype=np.float64)
+        self._released = False
+
+    def initialize(self) -> FrameData:
+        """Return a warmup frame used only to establish the shared-memory schema."""
+        return self._frame(frame_id=-1)
+
+    def read_frame(self, frame_id: int) -> FrameData:
+        """Return one complete zero-filled frame with current dual timestamps."""
+        if self._released:
+            raise RuntimeError('mock sensor client has been released')
+        return self._frame(frame_id=frame_id)
+
+    def release(self) -> None:
+        """Mark the client released; mock mode owns no SDK or worker resources."""
+        self._released = True
+
+    def _frame(self, frame_id: int) -> FrameData:
+        timestamp_ns_0 = time.time_ns()
+        timestamp_ns_1 = time.time_ns()
+        return FrameData(
+            frame_id=frame_id,
+            timestamp_ns_0=timestamp_ns_0,
+            timestamp_ns_1=timestamp_ns_1,
+            rec_0=self._rec_0,
+            force_0=self._force_0,
+            force_norm_0=self._force_norm_0,
+            force_resultant_0=self._force_resultant_0,
+            rec_1=self._rec_1,
+            force_1=self._force_1,
+            force_norm_1=self._force_norm_1,
+            force_resultant_1=self._force_resultant_1,
+        )
 
 
 def _select_sensor_payload(sensor: Any, Sensor: Any) -> tuple[int, tuple[Any, Any, Any, Any]]:
