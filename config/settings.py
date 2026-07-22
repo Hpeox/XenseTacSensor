@@ -8,8 +8,8 @@ from pathlib import Path
 class Settings:
     """Typed settings container used to configure sensors, UDS, shm, and pacing."""
 
-    sensor_id_0: str = "OG000544"
-    sensor_id_1: str = "OG001009"
+    sensor_id_0: str = "OG001622"
+    sensor_id_1: str = "OG001623"
     use_gpu: bool = True
 
     uds_path: str = "/tmp/xense_sensor.sock"

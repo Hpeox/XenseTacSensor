@@ -13,6 +13,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
+SENSOR_ID_0 = "OG001622"
+SENSOR_ID_1 = "OG001623"
+
+
 def import_sensor_client():
     return importlib.import_module("XenseTacSensor.io.sensor_client")
 
@@ -78,8 +82,8 @@ def _tactile_data_dict(sensor0: np.ndarray, sensor1: np.ndarray) -> dict:
     frames = {}
     for index, (force0, force1) in enumerate(zip(sensor0, sensor1)):
         frames[f"{index:05d}"] = {
-            "OG000544_force_resultant": np.asarray(force0, dtype=np.float64),
-            "OG001009_force_resultant": np.asarray(force1, dtype=np.float64),
+            f"{SENSOR_ID_0}_force_resultant": np.asarray(force0, dtype=np.float64),
+            f"{SENSOR_ID_1}_force_resultant": np.asarray(force1, dtype=np.float64),
         }
     return {"events": {}, "frames_data": frames}
 
@@ -91,7 +95,7 @@ def test_tactile_qc_allows_both_zero_force():
 
     result = compute_tactile_qc(
         _tactile_data_dict(zeros, zeros),
-        sensor_ids=("OG000544", "OG001009"),
+        sensor_ids=(SENSOR_ID_0, SENSOR_ID_1),
         zero_force_mean_tolerance=0.1,
         edge_warning_threshold=0.5,
         edge_window_samples=15,
@@ -111,7 +115,7 @@ def test_tactile_qc_fails_exactly_one_zero_force():
 
     result = compute_tactile_qc(
         _tactile_data_dict(zeros, nonzero),
-        sensor_ids=("OG000544", "OG001009"),
+        sensor_ids=(SENSOR_ID_0, SENSOR_ID_1),
         zero_force_mean_tolerance=0.1,
         edge_warning_threshold=0.5,
         edge_window_samples=15,
@@ -130,7 +134,7 @@ def test_tactile_qc_edge_warning_and_preview_write(tmp_path):
 
     result = compute_tactile_qc(
         _tactile_data_dict(normal, edge),
-        sensor_ids=("OG000544", "OG001009"),
+        sensor_ids=(SENSOR_ID_0, SENSOR_ID_1),
         zero_force_mean_tolerance=0.1,
         edge_warning_threshold=0.5,
         edge_window_samples=15,
